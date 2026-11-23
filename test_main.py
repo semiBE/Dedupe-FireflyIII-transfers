@@ -108,6 +108,49 @@ class ConfigurationTests(unittest.TestCase):
                     timeout=30,
                 )
 
+    def test_one_shot_logs_start_and_completion(self):
+        response = mock.Mock()
+        response.json.return_value = {"data": [], "meta": {"pagination": {"total_pages": 1}}}
+        output = io.StringIO()
+        with (
+            mock.patch.object(main.requests, "get", return_value=response) as get,
+            contextlib.redirect_stdout(output),
+        ):
+            result = main.run_scan(14, False, "https://env.example", {})
+        self.assertEqual(result, 0)
+        self.assertIn("Starting scan:", output.getvalue())
+        self.assertIn("mode: dry run", output.getvalue())
+        self.assertIn("Scan complete.", output.getvalue())
+        get.assert_called_once()
+
+    def test_delete_failures_are_reported_on_stderr_and_fail_run(self):
+        transaction = {
+            "date": "2026-01-01",
+            "amount": "10",
+            "source_id": "1",
+            "destination_id": "2",
+            "description": "transfer",
+        }
+        transfers = [
+            {"id": str(i), "attributes": {"transactions": [transaction]}}
+            for i in range(1, 5)
+        ]
+        failed = mock.Mock(status_code=500, text="server error")
+        succeeded = mock.Mock(status_code=204)
+        output, error = io.StringIO(), io.StringIO()
+        with (
+            mock.patch.object(main, "fetch_transfers", return_value=iter(transfers)),
+            mock.patch.object(main.requests, "delete", side_effect=[failed, succeeded]) as delete,
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(error),
+        ):
+            result = main.run_scan(14, True, "https://env.example", {})
+        self.assertEqual(result, 1)
+        self.assertEqual(delete.call_count, 2)
+        self.assertIn("FAILED 3: 500", error.getvalue())
+        self.assertIn("1 deletion failure", error.getvalue())
+        self.assertIn("deleted 4", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

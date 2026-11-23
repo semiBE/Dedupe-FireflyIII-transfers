@@ -12,6 +12,7 @@ Install dependencies: python -m pip install -r requirements.txt
 Fill in FIREFLY_URL and FIREFLY_TOKEN in .env next to this script, or set
 them in the environment. .env values take precedence, even when blank; remove
 a key from .env to use its environment value.
+Runs once; use an external scheduler for recurring scans.
 Usage: python main.py [--days 14] [--delete]
 """
 import argparse
@@ -57,8 +58,13 @@ def main():
     url = url.rstrip("/")
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
+    return run_scan(args.days, args.delete, url, headers)
+
+
+def run_scan(days, delete, url, headers):
     end = date.today()
-    start = end - timedelta(days=args.days)
+    start = end - timedelta(days=days)
+    print(f"Starting scan: {start} to {end} (mode: {'delete' if delete else 'dry run'}).", flush=True)
 
     groups = defaultdict(list)
     for g in fetch_transfers(start.isoformat(), end.isoformat(), url, headers):
@@ -88,13 +94,24 @@ def main():
         to_delete.extend(extra)
 
     print(f"\n{len(to_delete)} duplicate(s) found.")
-    if not args.delete:
+    if not delete:
         print("Dry run, nothing deleted. Re-run with --delete to remove them.")
-        return
+        print("Scan complete.")
+        return 0
 
+    failures = 0
     for gid in to_delete:
         r = requests.delete(f"{url}/api/v1/transactions/{gid}", headers=headers, timeout=30)
-        print(f"deleted {gid}" if r.status_code == 204 else f"FAILED {gid}: {r.status_code} {r.text}")
+        if r.status_code == 204:
+            print(f"deleted {gid}")
+        else:
+            failures += 1
+            print(f"FAILED {gid}: {r.status_code} {r.text}", file=sys.stderr)
+    if failures:
+        print(f"Scan complete with {failures} deletion failure(s).", file=sys.stderr)
+        return 1
+    print("Scan complete.")
+    return 0
 
 
 if __name__ == "__main__":
