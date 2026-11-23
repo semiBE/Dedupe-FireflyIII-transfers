@@ -6,7 +6,7 @@ Transfers are grouped by (date, amount, source, destination, description).
 In a group of n entries, n/2 are real, so the first n/2 (lowest IDs) are kept
 and the rest are flagged. Groups with an odd count are only reported, never touched.
 
-Dry-run by default. Pass --delete to actually delete.
+Dry-run by default. Set DRY_RUN=false or pass --delete to actually delete.
 
 Install dependencies: python -m pip install -r requirements.txt
 Fill in FIREFLY_URL and FIREFLY_TOKEN in .env next to this script, or set
@@ -46,7 +46,7 @@ def fetch_transfers(start, end, url, headers):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=14, help="how many days back to scan")
-    ap.add_argument("--delete", action="store_true", help="delete extras (default: dry run)")
+    ap.add_argument("--delete", action="store_true", help="delete extras, overriding DRY_RUN")
     args = ap.parse_args()
 
     load_dotenv(Path(__file__).with_name(".env"), override=True)
@@ -55,10 +55,13 @@ def main():
     missing = [name for name, value in (("FIREFLY_URL", url), ("FIREFLY_TOKEN", token)) if not value.strip()]
     if missing:
         ap.error(f"Set non-empty {', '.join(missing)} in .env or the environment.")
+    dry_run = os.environ.get("DRY_RUN", "true").strip().lower()
+    if dry_run not in ("true", "false"):
+        ap.error("DRY_RUN must be true or false.")
     url = url.rstrip("/")
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
-    return run_scan(args.days, args.delete, url, headers)
+    return run_scan(args.days, args.delete or dry_run == "false", url, headers)
 
 
 def run_scan(days, delete, url, headers):

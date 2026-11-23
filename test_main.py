@@ -71,6 +71,75 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(code, 0)
         get.assert_not_called()
 
+    def test_dry_run_configuration_controls_deletion(self):
+        environment = {"FIREFLY_URL": "https://env.example", "FIREFLY_TOKEN": "env-token"}
+        cases = (
+            (None, {}, [], False),
+            ("DRY_RUN=true\n", {}, [], False),
+            ("DRY_RUN=false\n", {}, [], True),
+            (None, {"DRY_RUN": "FALSE"}, [], True),
+            ("DRY_RUN=true\n", {"DRY_RUN": "false"}, [], False),
+            ("DRY_RUN=true\n", {}, ["--delete"], True),
+        )
+        for env_file, extra_env, args, expected_delete in cases:
+            with self.subTest(env_file=env_file, extra_env=extra_env, args=args):
+                with mock.patch.object(main, "run_scan") as run_scan:
+                    code, _, _ = self.run_main(env_file, {**environment, **extra_env}, args)
+                self.assertEqual(code, 0)
+                self.assertEqual(run_scan.call_args.args[1], expected_delete)
+
+    def test_invalid_dry_run_is_rejected_before_fetching(self):
+        for value in ("", "yes", "0"):
+            for args in ([], ["--delete"]):
+                with self.subTest(value=value, args=args):
+                    code, error, get = self.run_main(
+                        environment={
+                            "FIREFLY_URL": "https://env.example",
+                            "FIREFLY_TOKEN": "env-token",
+                            "DRY_RUN": value,
+                        },
+                        args=args,
+                    )
+                    self.assertEqual(code, 2)
+                    self.assertIn("DRY_RUN must be true or false", error)
+                    get.assert_not_called()
+
+    def test_dotenv_dry_run_controls_actual_delete_requests(self):
+        transaction = {
+            "date": "2026-01-01",
+            "amount": "10",
+            "source_id": "1",
+            "destination_id": "2",
+            "description": "transfer",
+        }
+        response = mock.Mock()
+        response.json.return_value = {
+            "data": [
+                {"id": str(i), "attributes": {"transactions": [transaction]}}
+                for i in (1, 2)
+            ],
+            "meta": {"pagination": {"total_pages": 1}},
+        }
+        for value, expected_calls in (("true", 0), ("false", 1)):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / "main.py"
+                script.with_name(".env").write_text(f"DRY_RUN={value}\n", encoding="utf-8")
+                with (
+                    mock.patch.object(main, "__file__", str(script)),
+                    mock.patch.dict(
+                        os.environ,
+                        {"FIREFLY_URL": "https://env.example", "FIREFLY_TOKEN": "env-token"},
+                        clear=True,
+                    ),
+                    mock.patch.object(main.sys, "argv", ["main.py"]),
+                    mock.patch.object(main.requests, "get", return_value=response),
+                    mock.patch.object(main.requests, "delete") as delete,
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    delete.return_value.status_code = 204
+                    self.assertEqual(main.main(), 0)
+                    self.assertEqual(delete.call_count, expected_calls)
+
     def test_delete_uses_configured_url_and_token(self):
         transaction = {
             "date": "2026-01-01",

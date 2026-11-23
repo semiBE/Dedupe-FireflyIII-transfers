@@ -7,9 +7,12 @@ Run `py main.py` for one scan. Schedule recurring runs externally, for example
 with cron or Windows Task Scheduler. The script-local `.env` takes precedence
 over process environment variables, including when a value is blank.
 
-The scan is a dry run by default. Add `--delete` to delete duplicates, or
-`--days 30` to change the scan window. Fetch errors terminate the process;
-individual deletion failures are reported and cause a nonzero exit status.
+The scan is a dry run by default (`DRY_RUN=true`). Set `DRY_RUN=false` in
+`.env` or the environment to delete duplicates. Only `true` and `false`
+(case-insensitive) are accepted. `--delete` explicitly enables deletion even
+when `DRY_RUN=true`; invalid values still cause an error. Add `--days 30` to
+change the scan window. Fetch errors terminate the process; individual deletion
+failures are reported and cause a nonzero exit status.
 
 ## Container
 
@@ -25,8 +28,8 @@ docker start -a firefly-dedupe
 The container runs once and remains stopped after completion. Schedule
 `docker start -a firefly-dedupe` externally; do not use `--rm` or a restart
 policy. Docker's `--env-file` passes values as environment variables; use
-plain, unquoted values. To enable deletion or change the scan window, supply
-the options when creating the container:
+plain, unquoted values. Set `DRY_RUN=false` in `.env` to enable deletion, or
+supply options when creating the container:
 
 ```powershell
 docker create --name firefly-dedupe --env-file .env firefly-dedupe --delete --days 30
