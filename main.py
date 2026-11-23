@@ -8,30 +8,29 @@ and the rest are flagged. Groups with an odd count are only reported, never touc
 
 Dry-run by default. Pass --delete to actually delete.
 
-Env vars: FIREFLY_URL (e.g. https://firefly.example.com), FIREFLY_TOKEN (personal access token)
-Usage:    python3 dedupe_transfers.py [--days 14] [--delete]
+Install dependencies: python -m pip install -r requirements.txt
+Fill in FIREFLY_URL and FIREFLY_TOKEN in .env next to this script, or set
+them in the environment. .env values take precedence, even when blank; remove
+a key from .env to use its environment value.
+Usage: python main.py [--days 14] [--delete]
 """
 import argparse
 import os
 import sys
 from collections import defaultdict
 from datetime import date, timedelta
+from pathlib import Path
 
 import requests
-
-URL = os.environ["FIREFLY_URL"].rstrip("/")
-HEADERS = {
-    "Authorization": f"Bearer {os.environ['FIREFLY_TOKEN']}",
-    "Accept": "application/json",
-}
+from dotenv import load_dotenv
 
 
-def fetch_transfers(start, end):
+def fetch_transfers(start, end, url, headers):
     page = 1
     while True:
         r = requests.get(
-            f"{URL}/api/v1/transactions",
-            headers=HEADERS,
+            f"{url}/api/v1/transactions",
+            headers=headers,
             params={"type": "transfer", "start": start, "end": end, "page": page},
             timeout=30,
         )
@@ -49,11 +48,20 @@ def main():
     ap.add_argument("--delete", action="store_true", help="delete extras (default: dry run)")
     args = ap.parse_args()
 
+    load_dotenv(Path(__file__).with_name(".env"), override=True)
+    url = os.environ.get("FIREFLY_URL", "")
+    token = os.environ.get("FIREFLY_TOKEN", "")
+    missing = [name for name, value in (("FIREFLY_URL", url), ("FIREFLY_TOKEN", token)) if not value.strip()]
+    if missing:
+        ap.error(f"Set non-empty {', '.join(missing)} in .env or the environment.")
+    url = url.rstrip("/")
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
     end = date.today()
     start = end - timedelta(days=args.days)
 
     groups = defaultdict(list)
-    for g in fetch_transfers(start.isoformat(), end.isoformat()):
+    for g in fetch_transfers(start.isoformat(), end.isoformat(), url, headers):
         splits = g["attributes"]["transactions"]
         if len(splits) != 1:  # skip split transactions
             continue
@@ -85,7 +93,7 @@ def main():
         return
 
     for gid in to_delete:
-        r = requests.delete(f"{URL}/api/v1/transactions/{gid}", headers=HEADERS, timeout=30)
+        r = requests.delete(f"{url}/api/v1/transactions/{gid}", headers=headers, timeout=30)
         print(f"deleted {gid}" if r.status_code == 204 else f"FAILED {gid}: {r.status_code} {r.text}")
 
 
