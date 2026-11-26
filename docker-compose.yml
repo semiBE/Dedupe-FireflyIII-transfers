@@ -4,3 +4,15 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: "no"
+    container_name: dedupe-firefly
+    networks:
+      - firefly_iii
+    environment:
+      DRY_RUN: ${DRY_RUN}
+      FIREFLY_TOKEN: ${FIREFLY_TOKEN}
+      FIREFLY_URL: ${FIREFLY_URL}
+
+networks:
+  firefly_iii:
+    driver: bridge
+    external: true
