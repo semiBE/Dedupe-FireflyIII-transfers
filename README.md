@@ -14,27 +14,23 @@ when `DRY_RUN=true`; invalid values still cause an error. Add `--days 30` to
 change the scan window. Fetch errors terminate the process; individual deletion
 failures are reported and cause a nonzero exit status.
 
-## Container
+## Docker Compose
 
-Build the image and pass configuration at runtime (the `.env` file is excluded
-from the build context):
-
-```powershell
-docker build -t firefly-dedupe .
-docker create --name firefly-dedupe --env-file .env firefly-dedupe
-docker start -a firefly-dedupe
-```
-
-The container runs once and remains stopped after completion. Schedule
-`docker start -a firefly-dedupe` externally; do not use `--rm` or a restart
-policy. Docker's `--env-file` passes values as environment variables; use
-plain, unquoted values. Set `DRY_RUN=false` in `.env` to enable deletion, or
-supply options when creating the container:
+Docker Compose builds the image using the Dockerfile and supplies `.env` at
+runtime. The `.env` file is excluded from the build context; use plain,
+unquoted values for Docker's environment file.
 
 ```powershell
-docker create --name firefly-dedupe --env-file .env firefly-dedupe --delete --days 30
+docker compose up --build -d
+docker compose logs --timestamps firefly-dedupe
 ```
 
-Use `docker logs --timestamps firefly-dedupe` to view output and errors from
-the runs. Docker must be running when the external scheduler starts the
-container. Recreate the container to apply changes to `.env` or its options.
+This builds the image and starts one scan; the container remains stopped
+afterwards. Schedule `docker compose start firefly-dedupe` externally, using
+the project directory or `docker compose -f` with an absolute path to the
+Compose file. Docker must be running when the scheduler starts the container.
+
+Set `DRY_RUN=false` in `.env` to enable deletion. Recreate the container with
+`docker compose up --build --force-recreate -d` to apply changes to `.env` or
+the image; this also starts a scan. For non-default command-line options, add a
+`command` to the service, for example `command: ["--days", "30"]`.
